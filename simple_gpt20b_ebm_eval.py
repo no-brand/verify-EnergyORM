@@ -21,11 +21,15 @@ def set_seed(seed: int):
 def extract_numeric_answer(text: str) -> Optional[str]:
     if not text:
         return None
-    if "####" in text:
-        candidate = text.split("####")[-1].strip()
-        if candidate:
-            return candidate.replace(",", "")
-    matches = re.findall(r"-?\d+(?:\.\d+)?", text.replace(",", ""))
+
+    sanitized = text.replace(",", "")
+    if "####" in sanitized:
+        tail = sanitized.split("####")[-1]
+        match = re.search(r"-?\d+(?:\.\d+)?", tail)
+        if match:
+            return match.group()
+
+    matches = re.findall(r"-?\d+(?:\.\d+)?", sanitized)
     if matches:
         return matches[-1]
     return None
