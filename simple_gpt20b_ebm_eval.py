@@ -3,6 +3,7 @@ import json
 import math
 import random
 import re
+from collections import Counter
 from typing import List, Optional
 
 import torch
@@ -153,6 +154,7 @@ def main(args):
     ebm.eval()
 
     naive_correct = 0
+    sc_correct = 0
     ebm_correct = 0
     total = 0
 
@@ -164,16 +166,32 @@ def main(args):
         thoughts = generate_thoughts(generator, gen_tokenizer, question, args)
 
         labels = []
+        pred_answers = []
         for thought in thoughts:
             pred = extract_numeric_answer(thought)
+            pred_answers.append(pred)
             labels.append(1 if answers_match(pred, gold) else 0)
 
         if not thoughts:
             continue
 
         total += 1
-        if labels[0] == 1:
+        if answers_match(pred_answers[0], gold):
             naive_correct += 1
+
+        counter = Counter()
+        first_idx = {}
+        for idx, ans in enumerate(pred_answers):
+            if ans is None:
+                continue
+            counter[ans] += 1
+            if ans not in first_idx:
+                first_idx[ans] = idx
+        sc_answer = None
+        if counter:
+            sc_answer = max(counter.items(), key=lambda x: (x[1], -first_idx[x[0]]))[0]
+        if sc_answer is not None and answers_match(sc_answer, gold):
+            sc_correct += 1
 
         energies = score_with_ebm(
             ebm,
@@ -194,16 +212,20 @@ def main(args):
             "gold_answer": gold,
             "thoughts": thoughts,
             "labels": labels,
+             "pred_answers": pred_answers,
             "energies": energies.tolist(),
             "chosen_by_ebm": best_idx,
             "chosen_by_naive": 0,
+            "chosen_by_self_consistency": sc_answer,
         })
 
     summary = {
         "total_questions": total,
         "ebm_accuracy": 100.0 * ebm_correct / total if total else 0.0,
         "naive_accuracy": 100.0 * naive_correct / total if total else 0.0,
-        "accuracy_delta": (100.0 * (ebm_correct - naive_correct) / total) if total else 0.0,
+        "self_consistency_accuracy": 100.0 * sc_correct / total if total else 0.0,
+        "accuracy_delta_ebm_vs_naive": (100.0 * (ebm_correct - naive_correct) / total) if total else 0.0,
+        "accuracy_delta_ebm_vs_self_consistency": (100.0 * (ebm_correct - sc_correct) / total) if total else 0.0,
         "generator_model": args.generator_model,
         "num_paths": args.num_paths,
         "split": args.split,
